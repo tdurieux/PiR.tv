@@ -3,12 +3,13 @@
  */
 
 var express = require('express')
-  , app = express()  
+  , app = express()
   , server = require('http').createServer(app)
   , path = require('path')
   , io = require('socket.io').listen(server)
   , spawn = require('child_process').spawn
-  , omx = require('omxcontrol');
+  , omx = require('omxcontrol'),
+  NodeCEC = require('nodecec');
 
 
 
@@ -58,17 +59,67 @@ function run_shell(cmd, args, cb, end) {
     child.stdout.on('end', end);
 }
 
+var cec = new NodeCEC();
+// start cec connection
+cec.start();
+
+cec.on('ready', function(data) {
+    console.log("ready...");
+    sendMessage("cecready",data);
+});
+
+cec.on('status', function(data) {
+  sendMessage("cecstatus",data);
+  sendMessage("ceclog","[" + data.id + "] changed from " + data.from + " to " + data.to);
+   console.log("[" + data.id + "] changed from " + data.from + " to " + data.to);
+});
+
+cec.on('key', function(data) {
+    console.log(data.name);
+    sendMessage("ceckey",data);
+    if(data.name == "select") {
+      sendControll("enter");
+    } else if(data.name === "left"){
+      sendControll("goLeft");
+    } else if(data.name === "right"){
+      sendControll("goRight");
+    }
+});
+
+cec.on('close', function(code) {
+    sendMessage("ceclog",'close: '+code);
+});
+
+cec.on('error', function(data) {
+  sendMessage("ceclog",'---------------- ERROR ------------------\n'+data+'\n-----------------------------------------')
+    console.log('---------------- ERROR ------------------');
+    console.log(data);
+    console.log('-----------------------------------------');
+});
+
+var remote;
+var ss;
+var sendMessage = function(type, message){
+  if(ss)
+    ss.emit(type,message);
+};
+
+var sendControll = function(action) {
+  if(ss != undefined){
+    ss.emit("controlling", {action:action});
+  }
+};
 //Socket.io Server
 io.sockets.on('connection', function (socket) {
-
  socket.on("screen", function(data){
    socket.type = "screen";
    ss = socket;
    console.log("Screen ready...");
  });
  socket.on("remote", function(data){
-   socket.type = "remote";
-   console.log("Remote ready...");
+  remote = socket;
+  socket.type = "remote";
+  console.log("Remote ready...");
  });
 
  socket.on("controll", function(data){
@@ -76,19 +127,13 @@ io.sockets.on('connection', function (socket) {
    if(socket.type === "remote"){
 
      if(data.action === "tap"){
-         if(ss != undefined){
-            ss.emit("controlling", {action:"enter"});
-            }
+      sendControll("enter");
      }
      else if(data.action === "swipeLeft"){
-      if(ss != undefined){
-          ss.emit("controlling", {action:"goLeft"});
-          }
+      sendControll("goLeft");
      }
      else if(data.action === "swipeRight"){
-       if(ss != undefined){
-           ss.emit("controlling", {action:"goRight"});
-           }
+      sendControll("goRight");
      }
    }
  });
@@ -113,3 +158,5 @@ io.sockets.on('connection', function (socket) {
 
  });
 });
+
+
